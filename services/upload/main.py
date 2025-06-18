@@ -6,7 +6,7 @@ import os
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://legal-scan-pro-pyk5.vercel.app/", "http://localhost:3000"], # or restrict to ["http://localhost:3000"] if using Next.js
+    allow_origins=["https://legal-scan-pro-pyk5.vercel.app", "http://localhost:3000"], # or restrict to ["http://localhost:3000"] if using Next.js
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
