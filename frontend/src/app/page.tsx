@@ -29,7 +29,8 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("http://localhost:8000/upload", {
+      //const res = await fetch("http://localhost:8000/upload", 
+      const res = await fetch("https://legalscanpro-upload-api.onrender.com/upload",{
         method: "POST",
         body: formData,
       });
