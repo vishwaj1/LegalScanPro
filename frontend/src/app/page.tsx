@@ -34,12 +34,12 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch(`${process.env.BACKEND}/template-fill/start`, {
+      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/start", {
         method: "POST",
         body: formData,
       });
       const data = await res.json();
-      console.log("API Response:", data);
+      //console.log("API Response:", data);
       if (data.questions.fields) {
         setQuestions(data.questions.fields);
       } else {
@@ -79,10 +79,10 @@ export default function PreviewPage() {
     }
     
     setSubmitting(true);
-    console.log("Submitting answers:", answers);
+    //  console.log("Submitting answers:", answers);
     
     try {
-      const res = await fetch(`${process.env.BACKEND}/template-fill/complete`, {
+      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
