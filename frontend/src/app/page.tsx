@@ -1,26 +1,31 @@
 'use client'
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Unlock } from "lucide-react";
-//import { Unlock, FileText, Shield, ArrowRight } from "lucide-react";
-import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
+// import { Unlock } from "lucide-react";
+// import { motion } from "framer-motion";
+// import { useRouter } from "next/navigation";
 import Layout from "@/components/layout";
 
 export default function PreviewPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [previewData, setPreviewData] = useState<{
-    issues: { severe: number; important: number; minor: number };
-    examples: { type: string; detail: string }[];
-  } | null>(null);
-  const [unlocked, setUnlocked] = useState(false);
-
-  const router = useRouter();
+  const [questions, setQuestions] = useState<{ placeholder: string; question: string }[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  //const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [publicPreviewUrl, setPublicPreviewUrl] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setSelectedFile(file);
+    if (file) {
+      setSelectedFile(file);
+      // Reset all state when new file is selected
+      setQuestions([]);
+      setSessionId(null);
+      setAnswers({});
+      //setDownloadUrl(null);
+    }
   };
 
   const handleUpload = async () => {
@@ -29,24 +34,26 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      //const res = await fetch("http://localhost:8000/upload", 
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/upload",{
+      const res = await fetch(`${process.env.BACKEND}/template-fill/start`, {
         method: "POST",
         body: formData,
       });
-      console.log(res);
-      //const data = await res.json();
-      setPreviewData({
-        issues: {
-          severe: 3,
-          important: 5,
-          minor: 8,
-        },
-        examples: [
-          { type: "Severe", detail: "Missing signature on SAFE note" },
-          { type: "Important", detail: "Inconsistent cap table vs. founder agreement" },
-        ],
+      const data = await res.json();
+      console.log("API Response:", data);
+      if (data.questions.fields) {
+        setQuestions(data.questions.fields);
+      } else {
+        setQuestions(data.questions);
+      }
+      setSessionId(data.session_id);
+      
+      // Initialize answers object with empty strings for all questions
+      const initialAnswers: Record<string, string> = {};
+      questions.forEach((q: { placeholder: string; question: string }) => {
+        initialAnswers[q.placeholder] = "";
       });
+      setAnswers(initialAnswers);
+      
     } catch (error) {
       console.error("Upload failed", error);
     } finally {
@@ -54,10 +61,63 @@ export default function PreviewPage() {
     }
   };
 
-  const handleUnlock = () => {
-    setUnlocked(true);
-    router.push("/payment");
+  const handleAnswerChange = (placeholder: string, value: string) => {
+    setAnswers(prev => ({
+      ...prev,
+      [placeholder]: value.trim() // Trim whitespace
+    }));
   };
+
+  const handleSubmitAnswers = async () => {
+    if (!sessionId) return;
+    
+    // Validate that all questions have answers
+    const unansweredQuestions = questions.filter(q => !answers[q.placeholder] || answers[q.placeholder].trim() === "");
+    if (unansweredQuestions.length > 0) {
+      alert(`Please fill in all required fields: ${unansweredQuestions.map(q => q.question).join(", ")}`);
+      return;
+    }
+    
+    setSubmitting(true);
+    console.log("Submitting answers:", answers);
+    
+    try {
+      const res = await fetch(`${process.env.BACKEND}/template-fill/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          session_id: sessionId, 
+          answers: answers 
+        }),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      //setDownloadUrl(data.local_download_url);
+      setPublicPreviewUrl(data.public_preview_url);
+      
+      // Automatically trigger download
+      // const a = document.createElement('a');
+      // a.href = url;
+      // a.download = `filled_${selectedFile?.name || 'document.docx'}`;
+      // document.body.appendChild(a);
+      // a.click();
+      // document.body.removeChild(a);
+      
+    } catch (error) {
+      console.error("Completion failed", error);
+      alert("Failed to generate document. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Check if all questions have answers
+  const isFormComplete = questions.length > 0 && 
+    questions.every(q => answers[q.placeholder] && answers[q.placeholder].trim() !== "");
 
   return (
     <Layout>
@@ -83,44 +143,74 @@ export default function PreviewPage() {
             </div>
           </div>
 
-          {previewData && (
+          {questions.length > 0 && (
             <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
-              <h2 className="text-2xl font-semibold text-black mb-4 text-center">Preview (Freemium)</h2>
-              <div className="grid grid-cols-3 gap-4 text-center mb-4">
-                <div>
-                  <p className="text-sm text-gray-500">Severe</p>
-                  <p className="text-xl font-bold text-red-600">{previewData.issues.severe}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Important</p>
-                  <p className="text-xl font-bold text-yellow-600">{previewData.issues.important}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Minor</p>
-                  <p className="text-xl font-bold text-green-600">{previewData.issues.minor}</p>
-                </div>
-              </div>
-              <h3 className="text-md text-black font-medium mb-2">Examples:</h3>
-              <ul className="list-disc ml-5 text-sm text-gray-700">
-                {previewData.examples.map((ex, idx) => (
-                  <li key={idx} className="mb-1">{ex.type}: {ex.detail}</li>
+              <h2 className="text-2xl font-semibold text-black mb-4 text-center">Please answer the following:</h2>
+              <div className="space-y-4">
+                {questions.map((q, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <label className="block font-medium text-black">
+                      {q.question} {!answers[q.placeholder] && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      className={`w-full border rounded-md p-2 ${
+                        !answers[q.placeholder] ? 'border-red-300' : 'border-gray-300'
+                      }`}
+                      placeholder={`Enter ${q.question.toLowerCase()}`}
+                      value={answers[q.placeholder] || ""}
+                      onChange={e => handleAnswerChange(q.placeholder, e.target.value)}
+                      required
+                    />
+                  </div>
                 ))}
-                {!unlocked && (
-                  <li className="text-gray-400 italic">[Locked content hidden...]</li>
-                )}
-              </ul>
-              {!unlocked && (
-                <Button onClick={handleUnlock} className="mt-6 w-full text-white bg-[#1f2937] hover:bg-[#111827]">
-                  <Unlock className="w-4 h-4 mr-2" /> Unlock Full Report – $500
+                <Button 
+                  onClick={handleSubmitAnswers} 
+                  disabled={submitting || !isFormComplete} 
+                  className="w-full bg-[#1f2937] hover:bg-[#111827] text-white"
+                >
+                  {submitting ? "Generating Document..." : "Generate Completed Document"}
                 </Button>
-              )}
-              {unlocked && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4">
-                  <p className="font-semibold text-center">Full report unlocked. Download coming soon.</p>
-                </motion.div>
-              )}
+                
+                {!isFormComplete && questions.length > 0 && (
+                  <p className="text-sm text-red-500 mt-2 text-center">
+                    Please fill in all {questions.length} required fields to continue
+                  </p>
+                )}
+              </div>
             </div>
           )}
+
+          {/* {downloadUrl && (
+            <div className="mt-6 text-center">
+              <a
+                href={downloadUrl}
+                download={`${selectedFile?.name || 'document'}`}
+                className="text-blue-600 underline text-lg"
+              >
+                Download Completed Document
+              </a>
+            </div>
+          )} */}
+
+          {publicPreviewUrl && (
+            <div className="mt-6 text-center">
+              <iframe
+              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicPreviewUrl)}`}
+              style={{ width: '100%', height: '600px' }}
+                frameBorder="0"
+              ></iframe>
+              <a
+                href={publicPreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 block text-blue-600 underline text-lg"
+              >
+                Download Completed Document
+              </a>
+            </div>
+          )}
+
         </div>
       </div>
     </Layout>
