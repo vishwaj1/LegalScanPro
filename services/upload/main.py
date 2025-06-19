@@ -18,7 +18,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*" # (optional, for www)
+        "https://legal-scan-pro-pyk5.vercel.app",
+        "http://localhost:3000",
+        "https://www.legal-scan-pro-pyk5.vercel.app"  # (optional, for www)
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -76,8 +78,8 @@ async def upload_file(file: UploadFile = File(...)):
 async def start_template_fill(file: UploadFile = File(...)):
 
     try:
-        content = await file.read()
-        s3.put_object(Bucket=BUCKET, Key=file.filename, Body=content)
+        file_content = await file.read()
+        s3.put_object(Bucket=BUCKET, Key=file.filename, Body=file_content)
         #return {"message": "File uploaded successfully", "filename": file.filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -86,7 +88,7 @@ async def start_template_fill(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only .docx files supported.")
 
     # Read the file content directly
-    file_content = await file.read()
+    #file_content = await file.read()
     
     # Convert DOCX to text
     temp_path = f"/tmp/{uuid.uuid4()}.docx"
