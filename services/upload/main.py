@@ -72,6 +72,14 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/template-fill/start")
 async def start_template_fill(file: UploadFile = File(...)):
+
+    try:
+        content = await file.read()
+        s3.put_object(Bucket=BUCKET, Key=file.filename, Body=content)
+        #return {"message": "File uploaded successfully", "filename": file.filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
     if not file.filename.endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files supported.")
 
@@ -115,6 +123,7 @@ async def start_template_fill(file: UploadFile = File(...)):
     response = llm.invoke([system_prompt, user_prompt])
 
     try:
+        
         # Parse the JSON response from the LLM
         parsed = json.loads(response.content)
         print("Parsed response:", parsed)  # Debug print

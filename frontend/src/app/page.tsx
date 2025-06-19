@@ -154,7 +154,7 @@ export default function PreviewPage() {
                     </label>
                     <input
                       type="text"
-                      className={`w-full border rounded-md p-2 ${
+                      className={`w-full border rounded-md p-2 text-black ${
                         !answers[q.placeholder] ? 'border-red-300' : 'border-gray-300'
                       }`}
                       placeholder={`Enter ${q.question.toLowerCase()}`}
