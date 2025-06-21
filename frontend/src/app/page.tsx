@@ -44,7 +44,7 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("http://localhost:8000/template-fill/start", {
+      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/start", {
         method: "POST",
         body: formData,
       });
@@ -93,7 +93,7 @@ export default function PreviewPage() {
     }));
 
     try {
-      const res = await fetch("http://localhost:8000/template-fill/complete", {
+      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers }),
@@ -120,9 +120,7 @@ export default function PreviewPage() {
       setChatIndex(chatIndex + 1);
     } else {
       setMode(null);
-      setTimeout(() => {
-        handleSubmitAnswers();
-      }, 0);
+      handleSubmitAnswers();
     }
     setChatHistory(newHistory);
   };
