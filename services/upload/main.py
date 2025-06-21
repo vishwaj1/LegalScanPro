@@ -183,7 +183,7 @@ async def complete_template_fill(request: CompleteRequest):
                 if key.startswith("$") and key in text:
                     text = text.replace(key, f"${val}")
                     keys_to_remove.append(key)
-                elif key in ["By", "Name", "Title", "Email", "Address"]:
+                elif key in ["By:", "Name:", "Title:", "Email:", "Address:"]:
                     text = text.replace(key, f"{key}: {val}")
                     keys_to_remove.append(key)
                 elif key in text:
