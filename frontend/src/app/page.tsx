@@ -1,9 +1,6 @@
 'use client'
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-// import { Unlock } from "lucide-react";
-// import { motion } from "framer-motion";
-// import { useRouter } from "next/navigation";
 import Layout from "@/components/layout";
 
 export default function PreviewPage() {
@@ -11,20 +8,33 @@ export default function PreviewPage() {
   const [uploading, setUploading] = useState(false);
   const [questions, setQuestions] = useState<{ placeholder: string; question: string }[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  //const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [publicPreviewUrl, setPublicPreviewUrl] = useState<string | null>(null);
+  const [mode, setMode] = useState<"form" | "chatbot" | null>(null);
+  const [chatIndex, setChatIndex] = useState(0);
+  const [chatHistory, setChatHistory] = useState<{ role: "user" | "bot"; text: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatBoxRef.current) {
+      chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      // Reset all state when new file is selected
       setQuestions([]);
       setSessionId(null);
-      setAnswers({});
-      //setDownloadUrl(null);
+      setAnswers([]);
+      setMode(null);
+      setPublicPreviewUrl(null);
+      setChatIndex(0);
+      setChatHistory([]);
+      setChatInput("");
     }
   };
 
@@ -34,26 +44,15 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/start", {
+      const res = await fetch("http://localhost:8000/template-fill/start", {
         method: "POST",
         body: formData,
       });
       const data = await res.json();
-      //console.log("API Response:", data);
-      if (data.questions.fields) {
-        setQuestions(data.questions.fields);
-      } else {
-        setQuestions(data.questions);
-      }
+      const fields = data.questions.fields || data.questions;
+      setQuestions(fields);
       setSessionId(data.session_id);
-      
-      // Initialize answers object with empty strings for all questions
-      const initialAnswers: Record<string, string> = {};
-      questions.forEach((q: { placeholder: string; question: string }) => {
-        initialAnswers[q.placeholder] = "";
-      });
-      setAnswers(initialAnswers);
-      
+      setAnswers(new Array(fields.length).fill(""));
     } catch (error) {
       console.error("Upload failed", error);
     } finally {
@@ -61,63 +60,72 @@ export default function PreviewPage() {
     }
   };
 
-  const handleAnswerChange = (placeholder: string, value: string) => {
-    setAnswers(prev => ({
-      ...prev,
-      [placeholder]: value.trim() // Trim whitespace
-    }));
+  const handleAnswerChange = (index: number, value: string) => {
+    setAnswers(prev => {
+      const newAnswers = [...prev];
+      newAnswers[index] = value.trim();
+      return newAnswers;
+    });
   };
 
   const handleSubmitAnswers = async () => {
     if (!sessionId) return;
     
-    // Validate that all questions have answers
-    const unansweredQuestions = questions.filter(q => !answers[q.placeholder] || answers[q.placeholder].trim() === "");
-    if (unansweredQuestions.length > 0) {
-      alert(`Please fill in all required fields: ${unansweredQuestions.map(q => q.question).join(", ")}`);
-      return;
-    }
+    // console.log("Answers array:", answers);
+    // console.log("Questions length:", questions.length);
+    // console.log("Answers length:", answers.length);
     
+    // const unanswered = questions.filter((_, i) => !answers[i] || answers[i].trim() === "");
+    // console.log("Unanswered questions:", unanswered);
+    
+    // if (unanswered.length > 0) {
+    //   alert("Please fill all fields");
+    //   return;
+    // }
+
     setSubmitting(true);
-    //  console.log("Submitting answers:", answers);
     
+    // Convert answers array to ordered array format that backend expects
+    const orderedAnswers = questions.map((q, index) => ({
+      placeholder: q.placeholder,
+      answer: answers[index],
+      index: index
+    }));
+
     try {
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/complete", {
+      const res = await fetch("http://localhost:8000/template-fill/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          session_id: sessionId, 
-          answers: answers 
-        }),
+        body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers }),
       });
-      
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      
       const data = await res.json();
-      //setDownloadUrl(data.local_download_url);
       setPublicPreviewUrl(data.public_preview_url);
-      
-      // Automatically trigger download
-      // const a = document.createElement('a');
-      // a.href = url;
-      // a.download = `filled_${selectedFile?.name || 'document.docx'}`;
-      // document.body.appendChild(a);
-      // a.click();
-      // document.body.removeChild(a);
-      
     } catch (error) {
-      console.error("Completion failed", error);
-      alert("Failed to generate document. Please try again.");
+      alert("Failed to generate document");
+      console.error("Error:", error);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Check if all questions have answers
-  const isFormComplete = questions.length > 0 && 
-    questions.every(q => answers[q.placeholder] && answers[q.placeholder].trim() !== "");
+  const handleChatSubmit = () => {
+    if (!chatInput.trim() || !questions[chatIndex]) return;
+    const newAnswers = [...answers];
+    newAnswers[chatIndex] = chatInput.trim();
+    setAnswers(newAnswers);
+    const newHistory = [...chatHistory, { role: "user" as const, text: chatInput.trim() }];
+    setChatInput("");
+    if (chatIndex + 1 < questions.length) {
+      newHistory.push({ role: "bot" as const, text: questions[chatIndex + 1].question });
+      setChatIndex(chatIndex + 1);
+    } else {
+      setMode(null);
+      setTimeout(() => {
+        handleSubmitAnswers();
+      }, 0);
+    }
+    setChatHistory(newHistory);
+  };
 
   return (
     <Layout>
@@ -126,86 +134,56 @@ export default function PreviewPage() {
           <div className="bg-white shadow-xl rounded-3xl p-10 border border-gray-100">
             <h1 className="text-3xl font-bold text-black text-center mb-6">Upload Legal Documents</h1>
             <div className="flex flex-col items-center gap-4">
-              <input
-                type="file"
-                onChange={handleFileChange}
-                accept=".pdf,.doc,.docx,.zip"
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#f3f4f6] hover:file:bg-[#e5e7eb]"
-              />
+              <input type="file" onChange={handleFileChange} accept=".pdf,.doc,.docx,.zip" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#f3f4f6] hover:file:bg-[#e5e7eb]" />
               <p className="text-sm text-gray-500 mt-1">Supported formats: PDF, DOC, DOCX, ZIP</p>
-              <Button 
-                onClick={handleUpload} 
-                disabled={uploading || !selectedFile} 
-                className="w-full bg-black font-bold hover:bg-gray-800 text-white transition-colors duration-200"
-              >
+              <Button onClick={handleUpload} disabled={uploading || !selectedFile} className="w-full bg-black font-bold hover:bg-gray-800 text-white transition-colors duration-200">
                 {uploading ? "Uploading..." : "Upload Document"}
               </Button>
             </div>
           </div>
 
           {questions.length > 0 && (
+            <div className="mt-6 text-center space-x-4">
+              <Button onClick={() => setMode("form")} className="bg-blue-600 hover:bg-blue-700 text-white">Fill via Form</Button>
+              <Button onClick={() => { setMode("chatbot"); setChatHistory([{ role: "bot" as const, text: questions[0].question }]); }} className="bg-green-600 hover:bg-green-700 text-white">Fill via Chatbot</Button>
+            </div>
+          )}
+
+          {mode === "form" && questions.length > 0 && (
             <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
               <h2 className="text-2xl font-semibold text-black mb-4 text-center">Please answer the following:</h2>
               <div className="space-y-4">
                 {questions.map((q, idx) => (
                   <div key={idx} className="space-y-1">
-                    <label className="block font-medium text-black">
-                      {q.question} {!answers[q.placeholder] && <span className="text-red-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      className={`w-full border rounded-md p-2 text-black ${
-                        !answers[q.placeholder] ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder={`Enter ${q.question.toLowerCase()}`}
-                      value={answers[q.placeholder] || ""}
-                      onChange={e => handleAnswerChange(q.placeholder, e.target.value)}
-                      required
-                    />
+                    <label className="block font-medium text-black">{q.question}</label>
+                    <input type="text" className="w-full border rounded-md p-2 text-black" value={answers[idx] || ""} onChange={e => handleAnswerChange(idx, e.target.value)} />
                   </div>
                 ))}
-                <Button 
-                  onClick={handleSubmitAnswers} 
-                  disabled={submitting || !isFormComplete} 
-                  className="w-full bg-[#1f2937] hover:bg-[#111827] text-white"
-                >
+                <Button onClick={handleSubmitAnswers} disabled={submitting} className="w-full bg-[#1f2937] hover:bg-[#111827] text-white">
                   {submitting ? "Generating Document..." : "Generate Completed Document"}
                 </Button>
-                
-                {!isFormComplete && questions.length > 0 && (
-                  <p className="text-sm text-red-500 mt-2 text-center">
-                    Please fill in all {questions.length} required fields to continue
-                  </p>
-                )}
               </div>
             </div>
           )}
 
-          {/* {downloadUrl && (
-            <div className="mt-6 text-center">
-              <a
-                href={downloadUrl}
-                download={`${selectedFile?.name || 'document'}`}
-                className="text-blue-600 underline text-lg"
-              >
-                Download Completed Document
-              </a>
+          {mode === "chatbot" && (
+            <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
+              <div ref={chatBoxRef} className="space-y-2 max-h-96 overflow-y-auto p-2 border border-gray-200 rounded-md bg-gray-50">
+                {chatHistory.map((line, i) => (
+                  <div key={i} className={`whitespace-pre-wrap px-4 py-2 rounded-lg ${line.role === 'bot' ? 'bg-white text-black self-start' : 'bg-blue-600 text-white self-end'}`}>{line.text}</div>
+                ))}
+              </div>
+              <div className="mt-4 flex gap-2">
+                <input type="text" className="w-full border p-2 rounded-md text-black" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChatSubmit()} />
+                <Button onClick={handleChatSubmit} className="bg-black text-white">Send</Button>
+              </div>
             </div>
-          )} */}
+          )}
 
           {publicPreviewUrl && (
             <div className="mt-6 text-center">
-              <iframe
-              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicPreviewUrl)}`}
-              style={{ width: '100%', height: '600px' }}
-                frameBorder="0"
-              ></iframe>
-              <a
-                href={publicPreviewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 block text-blue-600 underline text-lg"
-              >
+              <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicPreviewUrl)}`} style={{ width: '100%', height: '600px' }} frameBorder="0"></iframe>
+              <a href={publicPreviewUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-blue-600 underline text-lg">
                 Download Completed Document
               </a>
             </div>
