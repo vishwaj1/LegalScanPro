@@ -125,6 +125,7 @@ async def start_template_fill(file: UploadFile = File(...)):
     """)
 
     response = llm.invoke([system_prompt, user_prompt])
+    #parsed = {'fields': [{'placeholder': '[Company Name]', 'question': 'What is the company name?'}, {'placeholder': '[Investor Name]', 'question': "What is the investor's name?"}, {'placeholder': '$[_____________]', 'question': 'What is the purchase amount?'}, {'placeholder': '[Date of Safe]', 'question': 'What is the date of the SAFE?'}, {'placeholder': '[Company Name]', 'question': 'What is the company name?'}, {'placeholder': '[State of Incorporation]', 'question': 'What is the state of incorporation?'}, {'placeholder': '$[_____________]', 'question': 'What is the post-money valuation cap?'}, {'placeholder': '[Governing Law Jurisdiction]', 'question': 'What is the governing law jurisdiction?'}, {'placeholder': '[COMPANY]', 'question': 'What is the company name?'}, {'placeholder': '[name]', 'question': 'What is the name of the person signing on behalf of the company?'}, {'placeholder': '[title]', 'question': 'What is the title of the person signing on behalf of the company?'}, {'placeholder': 'Address', 'question': "What is the company's address?"}, {'placeholder': 'Email', 'question': "What is the company's email?"}, {'placeholder': 'INVESTOR:', 'question': 'Who is the investor?'}, {'placeholder': 'By:', 'question': 'Who is signing on behalf of the investor?'}, {'placeholder': 'Name:', 'question': 'What is the name of the person signing on behalf of the investor?'}, {'placeholder': 'Title:', 'question': 'What is the title of the person signing on behalf of the investor?'}, {'placeholder': 'Address:', 'question': "What is the investor's address?"}, {'placeholder': 'Email:', 'question': "What is the investor's email?"}]}
 
     try:
         
@@ -132,20 +133,20 @@ async def start_template_fill(file: UploadFile = File(...)):
         parsed = json.loads(response.content)
         print("Parsed response:", parsed)  # Debug print
     except Exception as e:
-        print("Raw response:", response.content)  # Debug print
+        #  print("Raw response:", response.content)  # Debug print
         raise HTTPException(status_code=500, detail=f"LLM response could not be parsed: {e}")
     
     return {"questions": parsed, "session_id": os.path.basename(temp_path)}
 
 class CompleteRequest(BaseModel):
     session_id: str
-    answers: dict
+    answers: list  # List of objects with placeholder, answer, index
 
 
 @app.post("/template-fill/complete")
 async def complete_template_fill(request: CompleteRequest):
     session_id = request.session_id
-    answers = request.answers
+    answers = request.answers  # This is a list of objects
 
     temp_path = f"/tmp/{session_id}"
     if not os.path.exists(temp_path):
@@ -153,16 +154,51 @@ async def complete_template_fill(request: CompleteRequest):
 
     try:
         doc = Document(temp_path)
-        converted_answers = answers
+        
+        # Convert answers array to a dictionary for easier processing
+        # Each answer object has: {placeholder, answer, index}
+        converted_answers = {}
+        for answer_obj in answers:
+            placeholder = answer_obj["placeholder"]
+            answer_value = answer_obj["answer"]
+            index = answer_obj["index"]
+            
+            # Create unique key for duplicates based on order
+            if placeholder in converted_answers:
+                # Count how many times this placeholder has appeared so far
+                count = sum(1 for a in answers[:index] if a["placeholder"] == placeholder) + 1
+                unique_key = f"{placeholder}_{count}"
+            else:
+                unique_key = placeholder
+            
+            converted_answers[unique_key] = answer_value
+            print(f"Processing field {index + 1}: {unique_key} = {answer_value}")
 
         def replace_placeholders(text):
+            keys_to_remove = []
             for key, val in converted_answers.items():
+                # Handle unique keys created by frontend (e.g., [Company Name]_2)
+                original_placeholder = key.split('_')[0] if '_' in key and key.split('_')[-1].isdigit() else key
+                
                 if key.startswith("$") and key in text:
                     text = text.replace(key, f"${val}")
+                    keys_to_remove.append(key)
                 elif key in ["By", "Name", "Title", "Email", "Address"]:
                     text = text.replace(key, f"{key}: {val}")
+                    keys_to_remove.append(key)
                 elif key in text:
                     text = text.replace(key, val)
+                    keys_to_remove.append(key)
+                elif original_placeholder in text:
+                    # Try matching with original placeholder (without suffix)
+                    text = text.replace(original_placeholder, val)
+                    keys_to_remove.append(key)
+            
+            # Remove used keys from converted_answers
+            for key in keys_to_remove:
+                if key in converted_answers:
+                    del converted_answers[key]
+            
             return text
 
         for p in doc.paragraphs:

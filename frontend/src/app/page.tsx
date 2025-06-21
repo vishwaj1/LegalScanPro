@@ -165,14 +165,14 @@ export default function PreviewPage() {
           )}
 
           {mode === "chatbot" && (
-            <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
-              <div ref={chatBoxRef} className="space-y-2 max-h-96 overflow-y-auto p-2 border border-gray-200 rounded-md bg-gray-50">
+            <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100 flex flex-col" style={{ height: "600px" }}>
+              <div ref={chatBoxRef} className="flex-1 space-y-4 overflow-y-auto p-4 border border-gray-300 rounded-md bg-gray-50">
                 {chatHistory.map((line, i) => (
-                  <div key={i} className={`whitespace-pre-wrap px-4 py-2 rounded-lg ${line.role === 'bot' ? 'bg-white text-black self-start' : 'bg-blue-600 text-white self-end'}`}>{line.text}</div>
+                  <div key={i} className={`max-w-[75%] px-4 py-2 rounded-lg text-sm ${line.role === 'bot' ? 'bg-white text-black self-start mr-auto' : 'bg-blue-600 text-white self-end ml-auto'}`}>{line.text}</div>
                 ))}
               </div>
               <div className="mt-4 flex gap-2">
-                <input type="text" className="w-full border p-2 rounded-md text-black" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChatSubmit()} />
+                <input type="text" className="w-full border p-2 rounded-md text-black" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChatSubmit()} placeholder="Type your answer..." />
                 <Button onClick={handleChatSubmit} className="bg-black text-white">Send</Button>
               </div>
             </div>
