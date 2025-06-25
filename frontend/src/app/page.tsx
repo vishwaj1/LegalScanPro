@@ -16,6 +16,7 @@ export default function PreviewPage() {
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "bot"; text: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const chatBoxRef = useRef<HTMLDivElement>(null);
+  //const [fullText, setFullText] = useState<string | null>(null);
 
   useEffect(() => {
     if (chatBoxRef.current) {
@@ -44,7 +45,7 @@ export default function PreviewPage() {
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/start", {
+      const res = await fetch("http://localhost:8000/template-fill/start", {
         method: "POST",
         body: formData,
       });
@@ -53,6 +54,7 @@ export default function PreviewPage() {
       setQuestions(fields);
       setSessionId(data.session_id);
       setAnswers(new Array(fields.length).fill(""));
+      //setFullText(data.full_text);
     } catch (error) {
       console.error("Upload failed", error);
     } finally {
@@ -93,10 +95,10 @@ export default function PreviewPage() {
     }));
 
     try {
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/complete", {
+        const res = await fetch("http://localhost:8000/template-fill/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers }),
+        body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers}),
       });
       const data = await res.json();
       setPublicPreviewUrl(data.public_preview_url);
