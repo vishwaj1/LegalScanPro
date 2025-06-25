@@ -169,8 +169,8 @@ async def complete_template_fill(request: CompleteRequest):
                 if placeholder.startswith("$"):
                     replaced_text = replaced_text.replace(placeholder, f"${answer}")
                 # Handle Name: ______ type
-                elif placeholder in ["By", "Name", "Title", "Email", "Address", "INVESTOR"]:
-                    replaced_text = re.sub(fr"({placeholder}:\s*)([_\s]*)", fr"\1{answer.strip()}", replaced_text, flags=re.MULTILINE)
+                elif placeholder in ["By:", "Name:", "Title:", "Email:", "Address:", "INVESTOR:"]:
+                    replaced_text = re.sub(fr"({placeholder}\s*)([_\s]*)", fr"\1{answer.strip()}", replaced_text, flags=re.MULTILINE)
                 else:
                     # Try exact match
                     if placeholder in replaced_text:
