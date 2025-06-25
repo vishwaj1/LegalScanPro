@@ -100,30 +100,37 @@ async def start_template_fill(file: UploadFile = File(...)):
     full_text = "\n".join([p.text for p in doc.paragraphs])
     print(full_text)
 
-    system_prompt = SystemMessage(content="You are a legal assistant that extracts placeholders from a document and generates user-friendly questions.")
+    system_prompt = SystemMessage(
+        content=(
+            "You are a legal assistant. Extract placeholders from a legal "
+            "document and craft concise questions to gather the missing "
+            "information. Respond only with valid JSON."
+        )
+    )
 
-    user_prompt = HumanMessage(content=f"""
-        You are a smart document parser. Your task is to extract all the fields or placeholders from the document below where a user is expected to fill in custom information. These may include:
+    user_prompt = HumanMessage(
+        content=f"""
+        Identify every location in the document below where user supplied information is
+        required. Examples include bracketed text like [Company Name], blank lines of
+        underscores, amounts with blanks, or signature blocks (e.g. \"Name:\").
 
-        - Bracketed text (e.g., [Company Name], [Date])
-        - Underscore blanks (e.g., ____________)
-        - Dollar or numeric blanks (e.g., $[________], [00.00])
-        - Signature fields, names, titles, addresses, emails
+        List the placeholders in the exact order they appear and produce a short plain
+        English question for each. Use the placeholder exactly as it appears in the
+        document. If the same placeholder appears multiple times, include each
+        occurrence separately in the list.
 
-        Return a JSON object of all such fields with a question asking about the field, in the order they appear. Only extract **places where user input is expected**, and do not include static text.
-        Please stick to the format of the example output below.
-        Example output:
+        Respond **only** with JSON in the following structure:
         {{
-                {{
-                    "placeholder": "[Company Name]",
-                    "question": "What is the company name?"
-                }},
-                ...
+        "fields": [
+            {{"placeholder": "[Company Name]", "question": "What is the company name?"}},
+            ...
+        ]
         }}
-        Here is the document:
-        {full_text}
 
-    """)
+        Document:
+        {full_text}
+        """
+            )
 
     response = llm.invoke([system_prompt, user_prompt])
     #parsed = {'fields': [{'placeholder': '[Company Name]', 'question': 'What is the company name?'}, {'placeholder': '[Investor Name]', 'question': "What is the investor's name?"}, {'placeholder': '$[_____________]', 'question': 'What is the purchase amount?'}, {'placeholder': '[Date of Safe]', 'question': 'What is the date of the SAFE?'}, {'placeholder': '[Company Name]', 'question': 'What is the company name?'}, {'placeholder': '[State of Incorporation]', 'question': 'What is the state of incorporation?'}, {'placeholder': '$[_____________]', 'question': 'What is the post-money valuation cap?'}, {'placeholder': '[Governing Law Jurisdiction]', 'question': 'What is the governing law jurisdiction?'}, {'placeholder': '[COMPANY]', 'question': 'What is the company name?'}, {'placeholder': '[name]', 'question': 'What is the name of the person signing on behalf of the company?'}, {'placeholder': '[title]', 'question': 'What is the title of the person signing on behalf of the company?'}, {'placeholder': 'Address', 'question': "What is the company's address?"}, {'placeholder': 'Email', 'question': "What is the company's email?"}, {'placeholder': 'INVESTOR:', 'question': 'Who is the investor?'}, {'placeholder': 'By:', 'question': 'Who is signing on behalf of the investor?'}, {'placeholder': 'Name:', 'question': 'What is the name of the person signing on behalf of the investor?'}, {'placeholder': 'Title:', 'question': 'What is the title of the person signing on behalf of the investor?'}, {'placeholder': 'Address:', 'question': "What is the investor's address?"}, {'placeholder': 'Email:', 'question': "What is the investor's email?"}]}
