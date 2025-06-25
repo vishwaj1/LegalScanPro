@@ -154,34 +154,83 @@ class CompleteRequest(BaseModel):
 @app.post("/template-fill/complete")
 async def complete_template_fill(request: CompleteRequest):
     try:
-        placeholder_answer_pairs = {a['placeholder']: a['answer'].replace('\n', ' ').replace('\r', '') for a in request.answers}
+        # Preserve the exact order of answers from frontend
+        ordered_answers = sorted(request.answers, key=lambda x: x['index'])
+        placeholder_answer_pairs = {}
+        
+        # Create mapping in the exact order received
+        for answer_obj in ordered_answers:
+            placeholder = answer_obj['placeholder']
+            answer = answer_obj['answer'].replace('\n', ' ').replace('\r', '')
+            index = answer_obj['index']
+            
+            # For duplicates, create unique keys based on order
+            if placeholder in placeholder_answer_pairs:
+                # Count how many times this placeholder has appeared so far
+                count = sum(1 for a in ordered_answers[:index] if a['placeholder'] == placeholder) + 1
+                unique_key = f"{placeholder}_{count}"
+            else:
+                unique_key = placeholder
+            
+            placeholder_answer_pairs[unique_key] = answer
+            print(f"Processing field {index + 1}: {unique_key} = {answer}")
+        
+        print("Final placeholder-answer pairs:", placeholder_answer_pairs)
+
+        first_block, second_block = {}, {}
+        company = False
+        investor = False
+        for placeholder, answer in placeholder_answer_pairs.items():
+            if placeholder == "[COMPANY]":
+                company = True
+            if placeholder == "INVESTOR:":
+                company = False
+                investor = True
+            if company:
+                first_block[placeholder] = answer
+            if investor:
+                second_block[placeholder] = answer
+            if placeholder == "Email_2":
+                investor = False
+        print(first_block)
+        print(second_block)
+
         temp_path = f"/tmp/{request.session_id}"
         if not os.path.exists(temp_path):
             raise HTTPException(status_code=404, detail="Session file not found")
 
         doc = Document(temp_path)
 
-        def replace_in_runs(runs):
+        def replace_in_runs(runs, block):
             merged_text = ''.join(run.text for run in runs)
             replaced_text = merged_text
-            for placeholder, answer in placeholder_answer_pairs.items():
+            keys_to_remove = []
+            print(block,replaced_text)
+            for placeholder, answer in block.items():
+                if "_" in placeholder and placeholder.split("_")[-1].isdigit():
+                    placeholder = "_".join(placeholder.split("_")[:-1])
                 # Handle $[_____] type
-                if placeholder.startswith("$"):
+                print(placeholder, answer)
+                if placeholder.startswith("$["):
                     replaced_text = replaced_text.replace(placeholder, f"${answer}")
+                    keys_to_remove.append(placeholder)
+                elif placeholder.startswith("By:"):
+                    replaced_text = replaced_text.replace(placeholder, f"{placeholder.split(':')[0]} - {answer}")
+                    #keys_to_remove.append(placeholder)
                 # Handle Name: ______ type
-                elif placeholder in ["By:", "Name:", "Title:", "Email:", "Address:", "INVESTOR:"]:
-                    replaced_text = re.sub(fr"({placeholder}\s*)([_\s]*)", fr"\1{answer.strip()}", replaced_text, flags=re.MULTILINE)
+                elif placeholder in ["Name:", "Title:", "Email:", "Address:", "INVESTOR:"]:
+                    replaced_text = replaced_text.replace(placeholder, f"{placeholder.split(':')[0]} - {answer}")
+                    #keys_to_remove.append(placeholder)
+                    
                 else:
                     # Try exact match
                     if placeholder in replaced_text:
                         replaced_text = replaced_text.replace(placeholder, answer)
-                    else:
-                        # Try fallback to original key if placeholder has _2, _3, etc.
-                        if "_" in placeholder and placeholder.split("_")[-1].isdigit():
-                            fallback = "_".join(placeholder.split("_")[:-1])
-                            if fallback in replaced_text:
-                                replaced_text = replaced_text.replace(fallback, answer)
+                        #keys_to_remove.append(placeholder)
 
+            for key in keys_to_remove:
+               if key in placeholder_answer_pairs:
+                   del placeholder_answer_pairs[key]
             if replaced_text != merged_text:
                 for run in runs:
                     run.text = ''
@@ -189,13 +238,28 @@ async def complete_template_fill(request: CompleteRequest):
                     runs[0].text = replaced_text
 
         for paragraph in doc.paragraphs:
-            replace_in_runs(paragraph.runs)
-
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        replace_in_runs(paragraph.runs)
+            replace_in_runs(paragraph.runs,placeholder_answer_pairs)
+            if 'Section 2' in paragraph.text:
+                break
+        
+        company_place = '[COMPANY]'
+        investor_place = 'INVESTOR:'
+        company_started = False
+        investor_started = False
+        for para in doc.paragraphs:
+            if company_place in para.text and not company_started:
+                print("Company started", para.text)
+                company_started = True
+            if investor_place in para.text and not investor_started:
+                print("Investor started", para.text)
+                investor_started = True
+                company_started = False
+            if company_started:
+                replace_in_runs(para.runs, first_block)
+            if investor_started:
+                replace_in_runs(para.runs, second_block)
+        
+        
 
         filled_path = f"/tmp/{request.session_id}_filled.docx"
         doc.save(filled_path)

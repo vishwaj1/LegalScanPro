@@ -38,14 +38,14 @@ export default function PreviewPage() {
       setChatInput("");
     }
   };
-
+  //https://legalscanpro-upload-api.onrender.com
   const handleUpload = async () => {
     if (!selectedFile) return;
     setUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/start", {
+      const res = await fetch("http://localhost:8000/template-fill/start", {
         method: "POST",
         body: formData,
       });
@@ -65,7 +65,7 @@ export default function PreviewPage() {
   const handleAnswerChange = (index: number, value: string) => {
     setAnswers(prev => {
       const newAnswers = [...prev];
-      newAnswers[index] = value.trim();
+      newAnswers[index] = value;
       return newAnswers;
     });
   };
@@ -90,12 +90,15 @@ export default function PreviewPage() {
     // Convert answers array to ordered array format that backend expects
     const orderedAnswers = questions.map((q, index) => ({
       placeholder: q.placeholder,
-      answer: answers[index],
-      index: index
+      answer: answers[index] || "",
+      index: index,
+      originalIndex: index  // Keep track of the original position
     }));
 
+    console.log("Ordered answers being sent:", orderedAnswers);
+
     try {
-        const res = await fetch("https://legalscanpro-upload-api.onrender.com/template-fill/complete", {
+        const res = await fetch("http://localhost:8000/template-fill/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers}),
