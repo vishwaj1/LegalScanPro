@@ -50,7 +50,7 @@ export default function PreviewPage() {
         body: formData,
       });
       const data = await res.json();
-      const fields = data.questions;
+      const fields = data.questions.fields || data.questions;
       setQuestions(fields);
       setSessionId(data.session_id);
       setAnswers(new Array(fields.length).fill(""));
