@@ -6,6 +6,7 @@ from docxtpl import DocxTemplate
 import os
 import uuid
 import tempfile
+import re
 # from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
@@ -145,82 +146,54 @@ class CompleteRequest(BaseModel):
 
 @app.post("/template-fill/complete")
 async def complete_template_fill(request: CompleteRequest):
-    session_id = request.session_id
-    answers = request.answers  # This is a list of objects
-
-    temp_path = f"/tmp/{session_id}"
-    if not os.path.exists(temp_path):
-        raise HTTPException(status_code=404, detail="Session not found")
-
     try:
+        placeholder_answer_pairs = {a['placeholder']: a['answer'].replace('\n', ' ').replace('\r', '') for a in request.answers}
+        temp_path = f"/tmp/{request.session_id}"
+        if not os.path.exists(temp_path):
+            raise HTTPException(status_code=404, detail="Session file not found")
+
         doc = Document(temp_path)
-        
-        # Convert answers array to a dictionary for easier processing
-        # Each answer object has: {placeholder, answer, index}
-        converted_answers = {}
-        for answer_obj in answers:
-            placeholder = answer_obj["placeholder"]
-            answer_value = answer_obj["answer"]
-            index = answer_obj["index"]
-            
-            # Create unique key for duplicates based on order
-            if placeholder in converted_answers:
-                # Count how many times this placeholder has appeared so far
-                count = sum(1 for a in answers[:index] if a["placeholder"] == placeholder) + 1
-                unique_key = f"{placeholder}_{count}"
-            else:
-                unique_key = placeholder
-            
-            converted_answers[unique_key] = answer_value
-            print(f"Processing field {index + 1}: {unique_key} = {answer_value}")
 
-        def replace_placeholders(text):
-            keys_to_remove = []
-            for key, val in converted_answers.items():
-                # Handle unique keys created by frontend (e.g., [Company Name]_2)
-                original_placeholder = key.split('_')[0] if '_' in key and key.split('_')[-1].isdigit() else key
-                
-                if key.startswith("$") and key in text:
-                    text = text.replace(key, f"${val}")
-                    keys_to_remove.append(key)
-                elif key in ["By:", "Name:", "Title:", "Email:", "Address:"]:
-                    text = text.replace(key, f"{key}: {val}")
-                    keys_to_remove.append(key)
-                elif key in text:
-                    text = text.replace(key, val)
-                    keys_to_remove.append(key)
-                elif original_placeholder in text:
-                    # Try matching with original placeholder (without suffix)
-                    text = text.replace(original_placeholder, val)
-                    keys_to_remove.append(key)
-            
-            # Remove used keys from converted_answers
-            for key in keys_to_remove:
-                if key in converted_answers:
-                    del converted_answers[key]
-            
-            return text
+        def replace_in_runs(runs):
+            merged_text = ''.join(run.text for run in runs)
+            replaced_text = merged_text
+            for placeholder, answer in placeholder_answer_pairs.items():
+                # Handle $[_____] type
+                if placeholder.startswith("$"):
+                    replaced_text = replaced_text.replace(placeholder, f"${answer}")
+                # Handle Name: ______ type
+                elif placeholder in ["By", "Name", "Title", "Email", "Address", "INVESTOR"]:
+                    replaced_text = re.sub(fr"({placeholder}:\s*)([_\s]*)", fr"\1{answer.strip()}", replaced_text, flags=re.MULTILINE)
+                else:
+                    # Try exact match
+                    if placeholder in replaced_text:
+                        replaced_text = replaced_text.replace(placeholder, answer)
+                    else:
+                        # Try fallback to original key if placeholder has _2, _3, etc.
+                        if "_" in placeholder and placeholder.split("_")[-1].isdigit():
+                            fallback = "_".join(placeholder.split("_")[:-1])
+                            if fallback in replaced_text:
+                                replaced_text = replaced_text.replace(fallback, answer)
 
-        for p in doc.paragraphs:
-            full_text = "".join(run.text for run in p.runs)
-            replaced_text = replace_placeholders(full_text)
-            if replaced_text != full_text:
-                p.clear()
-                p.add_run(replaced_text)
+            if replaced_text != merged_text:
+                for run in runs:
+                    run.text = ''
+                if runs:
+                    runs[0].text = replaced_text
+
+        for paragraph in doc.paragraphs:
+            replace_in_runs(paragraph.runs)
 
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
-                    full_text = "".join(paragraph.text for paragraph in cell.paragraphs)
-                    replaced_text = replace_placeholders(full_text)
-                    if replaced_text != full_text:
-                        cell.text = replaced_text
+                    for paragraph in cell.paragraphs:
+                        replace_in_runs(paragraph.runs)
 
-        filled_path = temp_path.replace(".docx", "_filled.docx")
+        filled_path = f"/tmp/{request.session_id}_filled.docx"
         doc.save(filled_path)
 
-        # Upload to R2
-        key = f"filled_docs/{session_id}"
+        key = f"filled_docs/{request.session_id}_filled.docx"
         with open(filled_path, "rb") as f:
             s3.put_object(
                 Bucket=BUCKET,
@@ -229,17 +202,14 @@ async def complete_template_fill(request: CompleteRequest):
                 ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
-        # Generate a public preview URL
-        base_url = os.getenv("R2_PUBLIC_BASE_URL")  # e.g., https://your-cdn-domain.com/legal-scan-pro
+        base_url = os.getenv("R2_PUBLIC_BASE_URL")
         if not base_url:
             raise HTTPException(status_code=500, detail="R2_PUBLIC_BASE_URL not configured")
         public_url = f"{base_url}/{key}"
 
         return {
-            "local_download_url": FileResponse(f"/tmp/{session_id}_filled.docx", media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             "public_preview_url": public_url
         }
 
     except Exception as e:
-        print(f"ERROR processing document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to process document: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate document: {e}")
