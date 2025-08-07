@@ -201,7 +201,15 @@ async def complete_template_fill(request: CompleteRequest):
 
         doc = Document(temp_path)
 
+        def contains_safe(doc_path):
+            doc = Document(doc_path)
+            for para in doc.paragraphs:
+                if "safe" in para.text.lower():
+                    return True
+            return False
+        value = 0
         def replace_in_runs(runs, block):
+            nonlocal value
             merged_text = ''.join(run.text for run in runs)
             replaced_text = merged_text
             keys_to_remove = []
@@ -210,10 +218,12 @@ async def complete_template_fill(request: CompleteRequest):
                 if "_" in placeholder and placeholder.split("_")[-1].isdigit():
                     placeholder = "_".join(placeholder.split("_")[:-1])
                 # Handle $[_____] type
-                print(placeholder, answer)
                 if placeholder.startswith("$["):
+                    if value == answer:
+                        continue
+                    value = answer
                     replaced_text = replaced_text.replace(placeholder, f"${answer}")
-                    keys_to_remove.append(placeholder)
+                    #keys_to_remove.append(placeholder)
                 elif placeholder.startswith("By:"):
                     replaced_text = replaced_text.replace(placeholder, f"{placeholder.split(':')[0]} - {answer}")
                     #keys_to_remove.append(placeholder)
@@ -228,36 +238,44 @@ async def complete_template_fill(request: CompleteRequest):
                         replaced_text = replaced_text.replace(placeholder, answer)
                         #keys_to_remove.append(placeholder)
 
-            for key in keys_to_remove:
-               if key in placeholder_answer_pairs:
-                   del placeholder_answer_pairs[key]
+            # for key in keys_to_remove:
+            #    if key in placeholder_answer_pairs:
+            #        del placeholder_answer_pairs[key]
+
             if replaced_text != merged_text:
                 for run in runs:
                     run.text = ''
                 if runs:
                     runs[0].text = replaced_text
-
-        for paragraph in doc.paragraphs:
-            replace_in_runs(paragraph.runs,placeholder_answer_pairs)
-            if 'Section 2' in paragraph.text:
-                break
         
-        company_place = '[COMPANY]'
-        investor_place = 'INVESTOR:'
-        company_started = False
-        investor_started = False
-        for para in doc.paragraphs:
-            if company_place in para.text and not company_started:
-                print("Company started", para.text)
-                company_started = True
-            if investor_place in para.text and not investor_started:
-                print("Investor started", para.text)
-                investor_started = True
-                company_started = False
-            if company_started:
-                replace_in_runs(para.runs, first_block)
-            if investor_started:
-                replace_in_runs(para.runs, second_block)
+        if contains_safe(temp_path):
+            print("Contains safe")
+
+            for paragraph in doc.paragraphs:
+                replace_in_runs(paragraph.runs,placeholder_answer_pairs)
+                if 'Section 2' in paragraph.text:
+                    break
+            
+            company_place = '[COMPANY]'
+            investor_place = 'INVESTOR:'
+            company_started = False
+            investor_started = False
+            for para in doc.paragraphs:
+                if company_place in para.text and not company_started:
+                    print("Company started", para.text)
+                    company_started = True
+                if investor_place in para.text and not investor_started:
+                    print("Investor started", para.text)
+                    investor_started = True
+                    company_started = False
+                if company_started:
+                    replace_in_runs(para.runs, first_block)
+                if investor_started:
+                    replace_in_runs(para.runs, second_block)
+        else:
+                print("No safe")
+                for para in doc.paragraphs:
+                    replace_in_runs(para.runs, placeholder_answer_pairs)
         
         
 
