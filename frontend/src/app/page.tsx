@@ -1,109 +1,117 @@
 'use client'
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import Layout from "@/components/layout";
 
+interface FormField {
+  id: string;
+  label: string;
+  placeholder: string;
+  type: string;
+  required: boolean;
+}
+
+interface Template {
+  name: string;
+  display_name: string;
+}
+
 export default function PreviewPage() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [questions, setQuestions] = useState<{ placeholder: string; question: string }[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [answers, setAnswers] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [formFields, setFormFields] = useState<FormField[]>([]);
+  const [formData, setFormData] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [publicPreviewUrl, setPublicPreviewUrl] = useState<string | null>(null);
-  const [mode, setMode] = useState<"form" | "chatbot" | null>(null);
-  const [chatIndex, setChatIndex] = useState(0);
-  const [chatHistory, setChatHistory] = useState<{ role: "user" | "bot"; text: string }[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const chatBoxRef = useRef<HTMLDivElement>(null);
-  //const [fullText, setFullText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
   useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
-    }
-  }, [chatHistory]);
+    // Load templates and form fields on component mount
+    const loadData = async () => {
+      try {
+        // Load templates
+        const templatesRes = await fetch(`${BASE_URL}/templates`);
+        const templatesData = await templatesRes.json();
+        setTemplates(templatesData.templates || []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      setQuestions([]);
-      setSessionId(null);
-      setAnswers([]);
-      setMode(null);
-      setPublicPreviewUrl(null);
-      setChatIndex(0);
-      setChatHistory([]);
-      setChatInput("");
-    }
-  };
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-    try {
-      const res = await fetch(`${BASE_URL}/template-fill/start`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      const fields = data.questions.fields || data.questions;
-      setQuestions(fields);
-      setSessionId(data.session_id);
-      setAnswers(new Array(fields.length).fill(""));
-      //setFullText(data.full_text);
-    } catch (error) {
-      console.error("Upload failed", error);
-    } finally {
-      setUploading(false);
-    }
+        // Load form fields
+        const fieldsRes = await fetch(`${BASE_URL}/form-fields`);
+        const fieldsData = await fieldsRes.json();
+        setFormFields(fieldsData.fields || []);
+
+        // Initialize form data with empty values
+        const initialFormData: Record<string, string> = {};
+        fieldsData.fields?.forEach((field: FormField) => {
+          initialFormData[field.id] = "";
+        });
+        setFormData(initialFormData);
+      } catch (error) {
+        console.error("Failed to load data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [BASE_URL]);
+
+  const handleFormChange = (fieldId: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [fieldId]: value
+    }));
   };
 
-  const handleAnswerChange = (index: number, value: string) => {
-    setAnswers(prev => {
-      const newAnswers = [...prev];
-      newAnswers[index] = value;
-      return newAnswers;
-    });
-  };
-  const handleSubmitAnswers = async () => {
-    if (!sessionId) return;
+  const handleSubmit = async () => {
+    if (!selectedTemplate) {
+      alert("Please select a template");
+      return;
+    }
+
+    // Check required fields
+    const requiredFields = formFields.filter(field => field.required);
+    const missingFields = requiredFields.filter(field => !formData[field.id]?.trim());
     
-    // console.log("Answers array:", answers);
-    // console.log("Questions length:", questions.length);
-    // console.log("Answers length:", answers.length);
-    
-    // const unanswered = questions.filter((_, i) => !answers[i] || answers[i].trim() === "");
-    // console.log("Unanswered questions:", unanswered);
-    
-    // if (unanswered.length > 0) {
-    //   alert("Please fill all fields");
-    //   return;
-    // }
+    if (missingFields.length > 0) {
+      alert(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return;
+    }
 
     setSubmitting(true);
-    
-    // Convert answers array to ordered array format that backend expects
-    const orderedAnswers = questions.map((q, index) => ({
-      placeholder: q.placeholder,
-      answer: answers[index] || "",
-      index: index,
-      originalIndex: index  // Keep track of the original position
-    }));
-
-    console.log("Ordered answers being sent:", orderedAnswers);
 
     try {
-        const res = await fetch(`${BASE_URL}/template-fill/complete`, {
+      const response = await fetch(`${BASE_URL}/document/fill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, answers: orderedAnswers}),
+        body: JSON.stringify({
+          template_name: selectedTemplate,
+          form_data: {
+            company_legal_name: formData.company_legal_name,
+            company_state: formData.company_state,
+            governing_law_state: formData.governing_law_state,
+            investor_name: formData.investor_name,
+            investor_title: formData.investor_title,
+            investor_address: formData.investor_address,
+            investor_email: formData.investor_email,
+            purchase_amount: parseFloat(formData.purchase_amount),
+            execution_date: formData.execution_date,
+            valuation_cap: parseFloat(formData.valuation_cap),
+            company_signatory_name: formData.company_signatory_name,
+            company_signatory_title: formData.company_signatory_title,
+            company_signatory_address: formData.company_signatory_address,
+            company_signatory_email: formData.company_signatory_email
+          }
+        }),
       });
-      const data = await res.json();
-      setPublicPreviewUrl(data.public_preview_url);
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setPublicPreviewUrl(data.public_preview_url);
+      } else {
+        alert("Failed to generate document");
+      }
     } catch (error) {
       alert("Failed to generate document");
       console.error("Error:", error);
@@ -112,85 +120,187 @@ export default function PreviewPage() {
     }
   };
 
-  const handleChatSubmit = () => {
-    if (!chatInput.trim() || !questions[chatIndex]) return;
-    const newAnswers = [...answers];
-    newAnswers[chatIndex] = chatInput.trim();
-    setAnswers(newAnswers);
-    const newHistory = [...chatHistory, { role: "user" as const, text: chatInput.trim() }];
-    setChatInput("");
-    if (chatIndex + 1 < questions.length) {
-      newHistory.push({ role: "bot" as const, text: questions[chatIndex + 1].question });
-      setChatIndex(chatIndex + 1);
-    } else {
-      setMode(null);
-      handleSubmitAnswers();
-    }
-    setChatHistory(newHistory);
-  };
+  if (loading) {
+    return (
+      <Layout>
+        <div className="py-16 px-4">
+          <div className="max-w-2xl mx-auto text-center">
+            <div className="bg-white shadow-xl rounded-3xl p-10 border border-gray-100">
+              <h1 className="text-3xl font-bold text-black mb-6">Loading...</h1>
+              <p className="text-gray-600">Loading templates and form fields...</p>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
       <div className="py-16 px-4">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <div className="bg-white shadow-xl rounded-3xl p-10 border border-gray-100">
-            <h1 className="text-3xl font-bold text-black text-center mb-6">Upload Legal Documents</h1>
-            <div className="flex flex-col items-center gap-4">
-              <input type="file" onChange={handleFileChange} accept=".pdf,.doc,.docx,.zip" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#f3f4f6] hover:file:bg-[#e5e7eb]" />
-              <p className="text-sm text-gray-500 mt-1">Supported formats: PDF, DOC, DOCX, ZIP</p>
-              <Button onClick={handleUpload} disabled={uploading || !selectedFile} className="w-full bg-black font-bold hover:bg-gray-800 text-white transition-colors duration-200">
-                {uploading ? "Uploading..." : "Upload Document"}
-              </Button>
-            </div>
-          </div>
+            <h1 className="text-3xl font-bold text-black text-center mb-6">Legal Document Generator</h1>
+            <p className="text-gray-600 text-center mb-8">Select a template and fill out the form to generate your legal document</p>
 
-          {questions.length > 0 && (
-            <div className="mt-6 text-center space-x-4">
-              <Button onClick={() => setMode("form")} className="bg-blue-600 hover:bg-blue-700 text-white">Fill via Form</Button>
-              <Button onClick={() => { setMode("chatbot"); setChatHistory([{ role: "bot" as const, text: questions[0].question }]); }} className="bg-green-600 hover:bg-green-700 text-white">Fill via Chatbot</Button>
-            </div>
-          )}
-
-          {mode === "form" && questions.length > 0 && (
-            <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
-              <h2 className="text-2xl font-semibold text-black mb-4 text-center">Please answer the following:</h2>
-              <div className="space-y-4">
-                {questions.map((q, idx) => (
-                  <div key={idx} className="space-y-1">
-                    <label className="block font-medium text-black">{q.question}</label>
-                    <input type="text" className="w-full border rounded-md p-2 text-black" value={answers[idx] || ""} onChange={e => handleAnswerChange(idx, e.target.value)} />
-                  </div>
+            {/* Template Selection */}
+            <div className="mb-8">
+              <label className="block text-lg font-semibold text-black mb-3">Select Document Template</label>
+              <select 
+                value={selectedTemplate} 
+                onChange={(e) => setSelectedTemplate(e.target.value)}
+                className="w-full border rounded-md p-3 text-black bg-white"
+              >
+                <option value="">Choose a template...</option>
+                {templates.map((template) => (
+                  <option key={template.name} value={template.name}>
+                    {template.display_name}
+                  </option>
                 ))}
-                <Button onClick={handleSubmitAnswers} disabled={submitting} className="w-full bg-[#1f2937] hover:bg-[#111827] text-white">
-                  {submitting ? "Generating Document..." : "Generate Completed Document"}
+              </select>
+            </div>
+
+            {/* Form Fields */}
+            {selectedTemplate && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-semibold text-black mb-4">Document Details</h2>
+                
+                {/* Company Details Section */}
+                <div className="border-l-4 border-blue-500 pl-4">
+                  <h3 className="text-lg font-semibold text-black mb-3">Company Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formFields.slice(0, 3).map((field) => (
+                      <div key={field.id} className="space-y-1">
+                        <label className="block font-medium text-black">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+                        <input 
+                          type={field.type} 
+                          className="w-full border rounded-md p-2 text-black" 
+                          value={formData[field.id] || ""} 
+                          onChange={(e) => handleFormChange(field.id, e.target.value)}
+                          required={field.required}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Investor Details Section */}
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="text-lg font-semibold text-black mb-3">Investor Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formFields.slice(3, 7).map((field) => (
+                      <div key={field.id} className="space-y-1">
+                        <label className="block font-medium text-black">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+                        {field.type === 'textarea' ? (
+                          <textarea 
+                            className="w-full border rounded-md p-2 text-black" 
+                            rows={3}
+                            value={formData[field.id] || ""} 
+                            onChange={(e) => handleFormChange(field.id, e.target.value)}
+                            required={field.required}
+                          />
+                        ) : (
+                          <input 
+                            type={field.type} 
+                            className="w-full border rounded-md p-2 text-black" 
+                            value={formData[field.id] || ""} 
+                            onChange={(e) => handleFormChange(field.id, e.target.value)}
+                            required={field.required}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Purchase & Agreement Details Section */}
+                <div className="border-l-4 border-purple-500 pl-4">
+                  <h3 className="text-lg font-semibold text-black mb-3">Purchase & Agreement Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formFields.slice(7, 10).map((field) => (
+                      <div key={field.id} className="space-y-1">
+                        <label className="block font-medium text-black">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+                        <input 
+                          type={field.type} 
+                          className="w-full border rounded-md p-2 text-black" 
+                          value={formData[field.id] || ""} 
+                          onChange={(e) => handleFormChange(field.id, e.target.value)}
+                          required={field.required}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Company Signatory Details Section */}
+                <div className="border-l-4 border-orange-500 pl-4">
+                  <h3 className="text-lg font-semibold text-black mb-3">Company Signatory Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formFields.slice(10).map((field) => (
+                      <div key={field.id} className="space-y-1">
+                        <label className="block font-medium text-black">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+                        {field.type === 'textarea' ? (
+                          <textarea 
+                            className="w-full border rounded-md p-2 text-black" 
+                            rows={3}
+                            value={formData[field.id] || ""} 
+                            onChange={(e) => handleFormChange(field.id, e.target.value)}
+                            required={field.required}
+                          />
+                        ) : (
+                          <input 
+                            type={field.type} 
+                            className="w-full border rounded-md p-2 text-black" 
+                            value={formData[field.id] || ""} 
+                            onChange={(e) => handleFormChange(field.id, e.target.value)}
+                            required={field.required}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={handleSubmit} 
+                  disabled={submitting || !selectedTemplate} 
+                  className="w-full bg-black font-bold hover:bg-gray-800 text-white transition-colors duration-200 mt-8"
+                >
+                  {submitting ? "Generating Document..." : "Generate Document"}
                 </Button>
               </div>
-            </div>
-          )}
-
-          {mode === "chatbot" && (
-            <div className="mt-10 bg-white shadow-xl rounded-3xl p-8 border border-gray-100 flex flex-col" style={{ height: "600px" }}>
-              <div ref={chatBoxRef} className="flex-1 space-y-4 overflow-y-auto p-4 border border-gray-300 rounded-md bg-gray-50">
-                {chatHistory.map((line, i) => (
-                  <div key={i} className={`max-w-[75%] px-4 py-2 rounded-lg text-sm ${line.role === 'bot' ? 'bg-white text-black self-start mr-auto' : 'bg-blue-600 text-white self-end ml-auto'}`}>{line.text}</div>
-                ))}
-              </div>
-              <div className="mt-4 flex gap-2">
-                <input type="text" className="w-full border p-2 rounded-md text-black" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChatSubmit()} placeholder="Type your answer..." />
-                <Button onClick={handleChatSubmit} className="bg-black text-white">Send</Button>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {publicPreviewUrl && (
-            <div className="mt-6 text-center">
-              <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicPreviewUrl)}`} style={{ width: '100%', height: '600px' }} frameBorder="0"></iframe>
-              <a href={publicPreviewUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-blue-600 underline text-lg">
-                Download Completed Document
-              </a>
+            <div className="mt-8 bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
+              <h2 className="text-2xl font-semibold text-black mb-4 text-center">Your Document is Ready!</h2>
+              <div className="text-center mb-4">
+                <a 
+                  href={publicPreviewUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
+                >
+                  Download Document
+                </a>
+              </div>
+              <iframe 
+                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicPreviewUrl)}`} 
+                style={{ width: '100%', height: '600px' }} 
+                frameBorder="0"
+                className="border rounded-lg"
+              />
             </div>
           )}
-
         </div>
       </div>
     </Layout>

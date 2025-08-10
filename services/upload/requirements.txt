@@ -3,9 +3,4 @@ uvicorn
 boto3
 python-multipart
 python-docx
-langchain
-langchain-community
-# langchain-groq
-langchain-openai
-openai
-docxtpl
+python-dotenv
